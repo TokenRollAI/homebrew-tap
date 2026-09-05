@@ -1,0 +1,45 @@
+name: Tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  install:
+    name: Install and test (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    env:
+      HOMEBREW_NO_ANALYTICS: "1"
+      HOMEBREW_NO_AUTO_UPDATE: "1"
+      HOMEBREW_NO_INSTALL_CLEANUP: "1"
+    steps:
+      - name: Set up Homebrew and check out this tap
+        id: homebrew
+        uses: Homebrew/actions/setup-homebrew@f8d4222eb633e65c2a0157383cf80861fc7fae7f
+        with:
+          stable: true
+      - name: Trust this formula
+        run: brew trust --formula tokenrollai/tap/tool-bridge
+      - name: Install from the npm release
+        run: brew install --build-from-source tokenrollai/tap/tool-bridge
+      - name: Audit formula
+        run: brew audit --strict tokenrollai/tap/tool-bridge
+      - name: Test offline CLI functionality
+        run: brew test tokenrollai/tap/tool-bridge
+      - name: Test formula updater
+        working-directory: ${{ steps.homebrew.outputs.repository-path }}
+        run: node --test scripts/*.test.mjs

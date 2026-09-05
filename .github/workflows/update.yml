@@ -1,0 +1,85 @@
+name: Update tool-bridge
+
+on:
+  schedule:
+    - cron: '23 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+  actions: write
+
+concurrency:
+  group: update-tool-bridge
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: '22'
+      - name: Test updater
+        run: node --test scripts/update-formula.test.mjs
+      - name: Check npm release
+        id: update
+        run: node scripts/update-formula.mjs
+      - name: Prepare update branch and pull request
+        if: steps.update.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.update.outputs.version }}
+          BASE_BRANCH: ${{ github.event.repository.default_branch }}
+          CREATE_UPDATE_PRS: ${{ vars.CREATE_UPDATE_PRS || 'false' }}
+        run: |
+          set -euo pipefail
+          BRANCH="automation/tool-bridge-$VERSION"
+          REMOTE_REF="$(git ls-remote --heads origin "refs/heads/$BRANCH")"
+          if [ -n "$REMOTE_REF" ]; then
+            git fetch origin "$BRANCH"
+            git show FETCH_HEAD:Formula/tool-bridge.rb > "$RUNNER_TEMP/existing-formula.rb"
+            if ! cmp -s Formula/tool-bridge.rb "$RUNNER_TEMP/existing-formula.rb"; then
+              echo "Existing update branch differs; refusing to overwrite it" >&2
+              exit 1
+            fi
+          else
+            git switch -c "$BRANCH"
+            git config user.name 'github-actions[bot]'
+            git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+            git add Formula/tool-bridge.rb
+            git commit -m "Keep Homebrew aligned with tool-bridge $VERSION"
+            git push origin "HEAD:refs/heads/$BRANCH"
+          fi
+          # GITHUB_TOKEN pushes and PRs do not trigger other workflows automatically.
+          # Always validate the branch, including when organization policy requires a human PR.
+          gh workflow run tests.yml --ref "$BRANCH"
+          PR_URL="$(gh pr list --head "$BRANCH" --base "$BASE_BRANCH" --state open --json url --jq '.[0].url // empty')"
+          if [ -z "$PR_URL" ]; then
+            # Opt in only after organization policy permits bot PRs. GITHUB_TOKEN
+            # cannot reliably read the administration-only workflow settings API.
+            case "$CREATE_UPDATE_PRS" in
+              false)
+                COMPARE_URL="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/compare/$BASE_BRANCH...$BRANCH?expand=1"
+                echo "::notice::Automatic PR creation is disabled (CREATE_UPDATE_PRS=false). Open $COMPARE_URL"
+                echo "Update branch created and tests dispatched. Automatic PR creation is disabled by the CREATE_UPDATE_PRS setting. [Open the update PR manually]($COMPARE_URL)." >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+                ;;
+              true) ;;
+              *)
+                echo "CREATE_UPDATE_PRS must be true or false" >&2
+                exit 1
+                ;;
+            esac
+            cat > "$RUNNER_TEMP/update-body.md" <<'BODY'
+          Updates the formula to the latest stable npm release of `@tool-bridge/cli`.
+
+          The updater checks the package name, exact registry tarball URL, npm SHA512 integrity, and version ordering before computing the Homebrew SHA256. The formula install and offline profile tests run in the explicitly dispatched tests workflow.
+          BODY
+            PR_URL="$(gh pr create --head "$BRANCH" --base "$BASE_BRANCH" --title "tool-bridge $VERSION" --body-file "$RUNNER_TEMP/update-body.md")"
+          fi
+          echo "Update PR: $PR_URL" >> "$GITHUB_STEP_SUMMARY"
