@@ -29,7 +29,7 @@ jobs:
     steps:
       - name: Set up Homebrew and check out this tap
         id: homebrew
-        uses: Homebrew/actions/setup-homebrew@f8d4222eb633e65c2a0157383cf80861fc7fae7f
+        uses: Homebrew/actions/setup-homebrew@e99025eb970cfa124b8284a35463d87426917478
         with:
           stable: true
       - name: Trust this formula
