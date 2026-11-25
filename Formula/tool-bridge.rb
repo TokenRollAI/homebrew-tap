@@ -1,8 +1,8 @@
 class ToolBridge < Formula
   desc "CLI for discovering and invoking tools through Tool Bridge"
   homepage "https://github.com/TokenRollAI/tool-bridge"
-  url "https://registry.npmjs.org/@tool-bridge/cli/-/cli-0.32.0.tgz"
-  sha256 "9816a5471764952ab56dfe158b783c7a7d6beb001977e9e93fd8e85de1c2c122"
+  url "https://registry.npmjs.org/@tool-bridge/cli/-/cli-0.34.0.tgz"
+  sha256 "a1ebac3715afd6cbb1eb5ec870d868e9ee00832fcf9c9656f1faff01ab68c7c2"
   license "MIT"
 
   depends_on "node"
